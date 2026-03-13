@@ -2,23 +2,6 @@ import re
 from urllib.parse import urlparse, parse_qs
 from config import H5_BASE
 
-# Домены коротких ссылок 95fen
-SHORT_URL_DOMAINS = {"95b.co"}
-
-
-def resolve_short_url(url: str) -> str:
-    """Разворачивает короткую ссылку через HTTP редирект."""
-    try:
-        import urllib.request
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36"}
-        )
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return r.url
-    except Exception:
-        return url
-
 
 def normalize_url(url: str) -> str:
     """Нормализует любой формат ссылки 95fen в H5 URL."""
@@ -35,13 +18,7 @@ def normalize_url(url: str) -> str:
     if not url.startswith("http"):
         url = "https://" + url
 
-    # Разворачиваем короткие ссылки (95b.co и т.п.)
-    parsed = urlparse(url)
-    if parsed.netloc in SHORT_URL_DOMAINS:
-        from rich.console import Console
-        Console().print(f"[dim]Разворачиваем короткую ссылку: {url}[/dim]")
-        url = resolve_short_url(url)
-
+    # Короткие ссылки (95b.co и т.п.) передаём как есть — Chrome на телефоне сам редиректит
     return url
 
 
