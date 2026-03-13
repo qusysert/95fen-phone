@@ -106,6 +106,19 @@ class SellerScraper:
             log.warning(f"dump_hierarchy: {e}")
             return None
 
+    def _dump_and_parse(self):
+        xml = self._dump()
+        if not xml:
+            return None
+        return etree.fromstring(xml.encode("utf-8"))
+
+    @staticmethod
+    def _bounds_center(bounds: str) -> tuple[int, int] | None:
+        m = re.findall(r'\d+', bounds)
+        if len(m) < 4:
+            return None
+        return (int(m[0]) + int(m[2])) // 2, (int(m[1]) + int(m[3])) // 2
+
     # ─────────────────────────────────────────────
     #  Скачивание фото карусели
     # ─────────────────────────────────────────────
@@ -154,21 +167,17 @@ class SellerScraper:
         self._adb_long_press(cx, cy, ms=1500)
         time.sleep(1.5)
 
-        xml = self._dump()
-        if not xml:
+        root = self._dump_and_parse()
+        if root is None:
             return False
 
-        root = etree.fromstring(xml.encode("utf-8"))
         for node in root.iter("node"):
             t = (node.get("text") or node.get("content-desc") or "").strip()
             if "保存图片" in t:
-                bs = node.get("bounds", "")
-                m  = re.findall(r'\d+', bs)
-                if len(m) >= 4:
-                    bx = (int(m[0]) + int(m[2])) // 2
-                    by = (int(m[1]) + int(m[3])) // 2
-                    console.print(f"[dim]    Тап '保存图片' @ ({bx},{by})[/dim]")
-                    self._adb_tap(bx, by)
+                center = self._bounds_center(node.get("bounds", ""))
+                if center:
+                    console.print(f"[dim]    Тап '保存图片' @ {center}[/dim]")
+                    self._adb_tap(*center)
                     return True
 
         console.print("[yellow]    '保存图片' не найдено в меню[/yellow]")
@@ -336,20 +345,11 @@ class SellerScraper:
         while self._captcha_check_and_wait():
             self._wait_for_loader()
 
-    def _wait_for_captcha_solved(self):
-        console.print("\n[bold red]⚠ КАПЧА ОБНАРУЖЕНА[/bold red]")
-        console.print("[yellow]Реши капчу на телефоне руками, потом нажми Enter здесь...[/yellow]")
-        input()
-        console.print("[green]Продолжаем...[/green]")
-        time.sleep(2)
-
     def _find_cards(self) -> list[dict]:
         """Возвращает список карточек com.jiuwu:id/clContainer с экрана."""
-        xml = self._dump()
-        if not xml:
+        root = self._dump_and_parse()
+        if root is None:
             return []
-
-        root = etree.fromstring(xml.encode("utf-8"))
         content_top    = int(self._sh * 0.12)
         content_bottom = int(self._sh * 0.92)
         cards = []
@@ -400,10 +400,9 @@ class SellerScraper:
 
     def _get_carousel_total(self) -> int:
         """Делает свежий dump и ищет счётчик '卖家实拍图 X/N'."""
-        xml = self._dump()
-        if not xml:
+        root = self._dump_and_parse()
+        if root is None:
             return 1
-        root = etree.fromstring(xml.encode("utf-8"))
         for node in root.iter("node"):
             t = (node.get("text") or "").strip()
             # "卖家实拍图 1/3" или просто "1/3"
@@ -478,11 +477,11 @@ class SellerScraper:
             console.print("[yellow]  Кнопка поделиться не найдена[/yellow]")
             return None
 
-        m = re.findall(r'\d+', share_bounds)
-        sx = (int(m[0]) + int(m[2])) // 2
-        sy = (int(m[1]) + int(m[3])) // 2
-        console.print(f"[dim]  Тап «Поделиться» @ ({sx},{sy})[/dim]")
-        self._adb_tap(sx, sy)
+        sc = self._bounds_center(share_bounds)
+        if not sc:
+            return None
+        console.print(f"[dim]  Тап «Поделиться» @ {sc}[/dim]")
+        self._adb_tap(*sc)
         time.sleep(2.5)
 
         xml2 = self._dump()
@@ -497,13 +496,10 @@ class SellerScraper:
         for node in root2.iter("node"):
             t = (node.get("text") or node.get("content-desc") or "").strip()
             if "复制链接" in t or ("复制" in t and "链接" in t):
-                bs2 = node.get("bounds", "")
-                m2 = re.findall(r'\d+', bs2)
-                if len(m2) >= 4:
-                    tx = (int(m2[0]) + int(m2[2])) // 2
-                    ty = (int(m2[1]) + int(m2[3])) // 2
-                    console.print(f"[dim]  Тап '复制链接' @ ({tx},{ty})[/dim]")
-                    self._adb_tap(tx, ty)
+                center = self._bounds_center(node.get("bounds", ""))
+                if center:
+                    console.print(f"[dim]  Тап '复制链接' @ {center}[/dim]")
+                    self._adb_tap(*center)
                     time.sleep(2.0)   # ждём копирования в буфер
                     copy_link_tapped = True
                 break
@@ -557,10 +553,10 @@ class SellerScraper:
             console.print("[yellow]  tvAttributes не найден, попап не открываем[/yellow]")
             return [], None
 
-        m = re.findall(r'\d+', attr_bounds)
-        ax = (int(m[0]) + int(m[2])) // 2
-        ay = (int(m[1]) + int(m[3])) // 2
-        self._adb_tap(ax, ay)
+        ac = self._bounds_center(attr_bounds)
+        if not ac:
+            return [], None
+        self._adb_tap(*ac)
         time.sleep(2.0)
 
         xml2 = self._dump()
@@ -588,18 +584,15 @@ class SellerScraper:
 
     def _tap_confirm(self):
         """Ищет кнопку «确认» в попапе и тапает её."""
-        xml = self._dump()
-        if not xml:
+        root = self._dump_and_parse()
+        if root is None:
             return
-        root = etree.fromstring(xml.encode("utf-8"))
         for node in root.iter("node"):
             if (node.get("text") or "").strip() == "确认":
-                bm = re.findall(r'\d+', node.get("bounds", ""))
-                if len(bm) >= 4:
-                    cx2 = (int(bm[0]) + int(bm[2])) // 2
-                    cy2 = (int(bm[1]) + int(bm[3])) // 2
-                    console.print(f"[dim]  Тап «确认» @ ({cx2},{cy2})[/dim]")
-                    self._adb_tap(cx2, cy2)
+                center = self._bounds_center(node.get("bounds", ""))
+                if center:
+                    console.print(f"[dim]  Тап «确认» @ {center}[/dim]")
+                    self._adb_tap(*center)
                 break
 
     def _extract_all_variants(self) -> list[dict]:
@@ -654,13 +647,10 @@ class SellerScraper:
                 console.print(f"[dim]  ✓ '{c['text']}' уже обработан[/dim]")
                 continue
 
-            m = re.findall(r'\d+', c["bounds"])
-            if len(m) < 4:
+            center = self._bounds_center(c["bounds"])
+            if not center:
                 continue
-
-            tx = (int(m[0]) + int(m[2])) // 2
-            ty = (int(m[1]) + int(m[3])) // 2
-            self._adb_tap(tx, ty)
+            self._adb_tap(*center)
             time.sleep(0.8)
 
             xml = self._dump()
